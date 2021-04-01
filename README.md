@@ -858,3 +858,280 @@ entweder das CSS file ```sb-admin-2.min.css``` ändern oder (was ich empfehle) d
 </head>
 ```
 
+
+
+
+# Bloomberg API
+
+Zur Abfage von Bloomy Daten verwenden wir ein Package:
+
+*Terminal*
+```
+pip install xbbg
+```
+
+Nun geben wir unserer View Daten mit, die auf der HTML Seite dargestellt werden sollen:
+
+*api/views.py*
+```python
+from django.shortcuts import render
+from xbbg import blp
+
+
+def BloombergAPI(request):
+    bb_data = blp.bdh('AAPL US EQUITY', 'PX_LAST').to_dict()
+    context = {'data': bb_data}
+    return render(request, 'api/bloomberg_api.html', context)
+```
+
+Diese Daten möchten wir nun auf der HTML Seite darstellen:
+
+*_templates/api/bloomberg_api.html*
+```HTML
+{% extends 'base.html' %}
+{% load static %}
+{% block content %}
+
+<body>
+    <h1>Hier kommt unser Bloomberg API</h1>
+    {{ data }}
+</body>
+
+{% endblock %}
+```
+
+Funktioniert. Muss nur noch schön dargestellt werden.
+
+Wir möchten aber Eingabefelder erstellen, in welchen wir den Ticker und die Variable eingeben können und der API die
+entsprechenden Daten liefert. Dazu erstellen wir ein Django Formular. Wir erstellen also eine neue Datei innerhalb
+unseres ```api``` Ordners und nennen diese ```forms.py```. Wir befüllen diese wie folgt:
+
+*api/forms.py*
+```python
+from django import forms
+from django.forms import TextInput, CharField, DateField
+
+
+class DateInput(forms.DateInput):
+    input_type = 'date'
+
+
+class BBForm(forms.Form):
+    ticker = CharField(widget=TextInput(attrs={'class': 'form-control'}))
+    variable = CharField(widget=TextInput(attrs={'class': 'form-control'}))
+    start_date = DateField(widget=DateInput(attrs={'class': 'form-control'}))
+    end_date = DateField(widget=DateInput(attrs={'class': 'form-control'}))
+```
+
+In unserer View stellen wir vorerst mal nur diese Form dar (die Bloomberg Daten kommen später):
+
+*api/views.py*
+```python
+from django.shortcuts import render
+from .forms import BBForm
+from xbbg import blp
+
+
+def BloombergAPI(request):
+    form = BBForm()
+    context = {'form': form}
+    return render(request, 'api/bloomberg_api.html', context)
+```
+
+Im HTML File müssen wir nun nicht mehr Daten darstellen, sondern dieses Formular:
+
+*_templates/api/bloomberg_api.html*
+```HTML
+{% extends 'base.html' %}
+{% load static %}
+{% block content %}
+
+<body>
+    <h1>Hier kommt unser Bloomberg API</h1>
+    {{ form.as_p }}
+</body>
+
+{% endblock %}
+{% extends 'base.html' %}
+{% load static %}
+{% block content %}
+
+<body>
+    <h1>Hier kommt unser Bloomberg API</h1>
+    <form method="POST">
+        {% csrf_token %}
+        {{ form.as_p }}
+        <button type="submit" class="btn btn-primary">
+            Submit
+        </button>
+    </form>
+</body>
+
+{% endblock %}
+```
+
+Sehr schön, dass Formular wird richtig dargestellt. Da wir ja nach Eingabe der Daten ins Formular eine andere Ansicht
+(mit den Daten) haben möchten, müssen wir in unserer View einen zwischen ```GET``` und ```POST``` unterscheiden:
+
+*api/views.py*
+```python
+from django.shortcuts import render
+from .forms import BBForm
+from xbbg import blp
+
+
+def BloombergAPI(request):
+    if request.method == 'GET':
+        form = BBForm()
+        context = {'form': form}
+        return render(request, 'api/bloomberg_api.html', context)
+
+    elif request.method == "POST":
+        form = BBForm(request.POST)
+        if form.is_valid():
+            ticker = form.cleaned_data['ticker']
+            variable = form.cleaned_data['variable']
+            start = form.cleaned_data['start_date'].strftime('%Y-%m-%d')
+            end = form.cleaned_data['end_date'].strftime('%Y-%m-%d')
+            form = BBForm()
+            ts = blp.bdh(ticker, variable, start, end)
+            data = ts[ticker][variable].to_list()
+            labels = ts.index.strftime('%Y-%m-%d').to_list()
+            context = {'form': form, 'data': data, 'labels': labels, 'variable': variable, 'ticker': ticker}
+        return render(request, 'api/bloomberg_api.html', context)
+
+    else:
+        return render(request, 'api/bloomberg_api.html', {})
+```
+
+In unserer View stellen wir nun neben der Form auch die Daten dar:
+
+*_templates/api/bloomberg_api.html*
+```HTML
+{% extends 'base.html' %}
+{% load static %}
+{% block content %}
+
+<body>
+    <h1>Hier kommt unser Bloomberg API</h1>
+    <form method="POST">
+        {% csrf_token %}
+        {{ form.as_p }}
+        <button type="submit" class="btn btn-primary">
+            Submit
+        </button>
+    </form>
+    <div>
+        {{ ticker }}
+        {{ variable }}
+        {{ labels }}
+        {{ data }}
+    </div>
+</body>
+
+{% endblock %}
+```
+
+Das müssen wir nun nur noch als Grafik darstellen und wie sind fertig. Für Webgrafiken ist Javascript mit dem Packet
+```Charts.js``` optimal. Zur Integration von ```Charts.js```, müssen wir das Packet in unserem ```base.html``` template 
+inkludieren und wir definieren eine Funktion:
+
+*_templates/base.html*
+```HTML
+...
+    <!-- Bootstrap core JavaScript-->
+    <script src="{% static 'vendor/jquery/jquery.min.js' %}"></script>
+    <script src="{% static 'vendor/bootstrap/js/bootstrap.bundle.min.js' %}"></script>
+
+    <!-- Core plugin JavaScript-->
+    <script src="{% static 'vendor/jquery-easing/jquery.easing.min.js' %}"></script>
+
+    <!-- Custom scripts for all pages-->
+    <script src="{% static 'js/sb-admin-2.min.js' %}"></script>
+
+    <script src="{% static 'vendor/chart.js/Chart.min.js' %}"></script>
+
+     <script>
+        $(document).ready(function(){
+          {% block jquery %}{% endblock %}
+        })
+    </script>
+
+</body>
+
+</html>
+```
+
+Unsere ```bloomberg_api.html``` template passen wir wie folgt an:
+
+*_templates/api/bloomberg_api.html*
+```HTML
+{% extends 'base.html' %}
+{% load static %}
+{% block content %}
+
+<script>
+    {% block jquery %}
+        $(document).ready(function() {
+            var ctx = document.getElementById('myChart').getContext('2d');
+            var myChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: {{labels|safe}},
+                    datasets: [{
+                        label: "{{variable|safe}}",
+                        fill: false,
+                        data: {{data|safe}},
+                        borderColor: [
+                            'rgba(255, 99, 132, 1)',
+                            'rgba(54, 162, 235, 1)',
+                            'rgba(255, 206, 86, 1)',
+                            'rgba(75, 192, 192, 1)',
+                            'rgba(153, 102, 255, 1)',
+                            'rgba(255, 159, 64, 1)'
+                        ],
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    tooltips: {
+                        enabled: true,
+                    },
+                    title: {
+                        display: true,
+                        text: "{{ticker|safe}}"
+                    },
+                    elements: {
+                        point:{
+                            radius: 0
+                            }
+                    },
+                    scales: {
+                        x: {
+                            type: 'timeseries',
+                        }
+                    }
+                }
+            });
+        });
+    {% endblock %}
+</script>
+
+<body>
+    <h1>Hier kommt unser Bloomberg API</h1>
+    <form method="POST">
+        {% csrf_token %}
+        {{ form.as_p }}
+        <button type="submit" class="btn btn-primary">
+            Submit
+        </button>
+    </form>
+    <div>
+        <canvas id="myChart" width="400" height="200"></canvas>
+    </div>
+</body>
+
+{% endblock %}
+```
+
+We are done!
