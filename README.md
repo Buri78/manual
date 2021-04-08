@@ -514,7 +514,7 @@ die richtige Seite weitergeleitet wird. Die ```Sidebar``` sieht also nun wie fol
 
             <!-- Nav Item - Dashboard -->
             <li class="nav-item active">
-                <a class="nav-link" href="{% url 'bloomberg' %}">
+                <a class="nav-link" href="{% url 'bloomberg_api' %}">
                     <i class="fas fa-fw fa-tachometer-alt"></i>
                     <span>Bloomberg API</span></a>
             </li>
